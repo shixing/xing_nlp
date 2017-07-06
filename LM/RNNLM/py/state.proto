@@ -1,0 +1,26 @@
+package state;
+
+message State{
+    repeated int32 input = 1;
+    repeated int32 output = 2;
+    required int32 length = 3;
+    
+    message Vector {
+        repeated float values = 1;
+    }
+
+    message Layer {
+        required Vector fg = 1;
+        required Vector ig = 2;
+        required Vector og = 3;
+        required Vector i = 4;
+        required Vector h = 5;
+        required Vector c = 6;
+    }
+
+    message Step {
+        repeated Layer layers = 1;
+    }
+    
+    repeated Step steps = 4;
+}

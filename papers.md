@@ -15,3 +15,10 @@ Best Tutorial http://colah.github.io/posts/2015-08-Understanding-LSTMs/
 
 # RNNLM
 RECURRENT NEURAL NETWORK REGULARIZATION https://arxiv.org/pdf/1409.2329.pdf
+
+# Gradients Descent
+Best Survey http://ruder.io/optimizing-gradient-descent/index.html#minibatchgradientdescent
+
+# Hyper parameter searching
+Random Search for Hyper-Parameter Optimization http://www.jmlr.org/papers/volume13/bergstra12a/bergstra12a.pdf
+A good answer from stackoverflow https://stats.stackexchange.com/questions/95495/guideline-to-select-the-hyperparameters-in-deep-learning

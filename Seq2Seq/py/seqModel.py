@@ -481,10 +481,10 @@ class SeqModel(object):
 
                         outputs.append(h_att)
                     
-                return outputs, state
+                    return outputs, state
                         
 
-        return decoder_outputs, decoder_state
+
 
     
 
@@ -689,6 +689,14 @@ class SeqModel(object):
 
         return decoder_outputs, decoder_state, encoder2before_ops, decoder2after_ops  
                     
+
+    def beam_attention_seq2seq(self, encoder_cell, decoder_cell, encoder_inputs, decoder_inputs, dtype, devices = None):
+        # fill this
+        pass
+
+
+
+
     def after2before(self, beam_parent):
         # beam_parent : [beam_size]
         ops = []

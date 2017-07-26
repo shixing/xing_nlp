@@ -100,12 +100,17 @@ class SeqModel(object):
                 self.inputs_embed.append(input_embed)
 
 
+        def lstm_cell():
+            cell = tf.contrib.rnn.LSTMCell(size, state_is_tuple=True)
+            cell = tf.contrib.rnn.DropoutWrapper(cell,input_keep_prob = self.dropoutRate)
+            return cell
+
         # LSTM 
         with tf.device(devices[1]):
-            single_cell = tf.contrib.rnn.LSTMCell(size, state_is_tuple=True)
-            single_cell = tf.contrib.rnn.DropoutWrapper(single_cell,input_keep_prob = self.dropoutRate)
-            if num_layers >= 1:
-                single_cell = tf.contrib.rnn.MultiRNNCell([single_cell] * num_layers, state_is_tuple=True)
+            if num_layers == 1:
+                single_cell = lstm_cell()
+            else:
+                single_cell = tf.contrib.rnn.MultiRNNCell([lstm_cell() for _ in xrange(num_layers)], state_is_tuple=True)
             single_cell = tf.contrib.rnn.DropoutWrapper(single_cell, output_keep_prob = self.dropoutRate)
         
         self.single_cell = single_cell

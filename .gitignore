@@ -3,5 +3,7 @@
 [#].[#]
 .[#]*
 *[#]
-
 *pyc
+*.unk
+notebook/RNNLM/.ipynb_checkpoints
+notebook/RNNLM/model/model_small

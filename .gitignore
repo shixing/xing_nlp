@@ -3,5 +3,6 @@
 [#].[#]
 .[#]*
 *[#]
-
 *pyc
+*.unk
+LM/RNNLM/model/model_small

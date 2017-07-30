@@ -503,6 +503,10 @@ class SeqModel(object):
         
         shape = [self.batch_size, self.size]
 
+        if self.with_attention:
+            self.top_states_4 = [] # ht in encoder
+            self.top_states_transform_4 = [] # a_w * ht
+
         with tf.device(self.devices[0]):
 
             with tf.variable_scope("beam_search"):
@@ -523,11 +527,23 @@ class SeqModel(object):
                     ha = tf.get_variable("after_h_{}".format(i), shape, initializer=tf.constant_initializer(0.0), trainable = False) 
                     sa = tf.nn.rnn_cell.LSTMStateTuple(ca,ha)
                     self.before_state.append(sb)
-                    self.after_state.append(sa)                
+                    self.after_state.append(sa)
 
-                
+                if self.with_attention:
+                    self.before_ht_att = tf.get_variable("before_ht_att", shape, initializer=tf.constant_initializer(0.0), trainable=False)
+                    self.after_ht_att = tf.get_variable("after_ht_att", shape, initializer=tf.constant_initializer(0.0), trainable=False)
+                    for j, source_length in enumerate(self.beam_buckets):
+                        ts4 = tf.get_variable("top_h_{}".format(j), [self.batch_size, source_length, 1, self.size], initializer=tf.constant_initializer(0.0), trainable=False)
+                        tst4 = tf.get_variable("top_w_h_{}".format(j), [self.batch_size, source_length, 1, self.size], initializer=tf.constant_initializer(0.0), trainable=False)
+                        self.top_states_4.append(ts4)
+                        self.top_states_transform_4.append(tst4)
+
+
             # after2before_ops
             self.after2before_ops = self.after2before(self.beam_parent)
+
+            if self.with_attention:
+                self.after2before_att_ops = self.after2before_att(self.beam_parent)
             
 
             # encoder and one-step decoder
@@ -554,8 +570,14 @@ class SeqModel(object):
             for i in xrange(len(sources)):
                 input_feed[self.sources[i].name] = sources[i]
 
-            output_feed = []
-            output_feed += self.encoder2before_ops[bucket_id]
+            output_feed = {}
+            output_feed['e2b'] = self.encoder2before_ops[bucket_id]
+            
+            if self.with_attention:
+                output_feed['ht_a_i'] = self.ht_att_init_ops[bucket_id]
+                output_feed['ts4'] = self.top_states_4_ops[bucket_id]
+                output_feed['tst4'] = self.top_states_transform_4_ops[bucket_id]
+
             _ = session.run(output_feed, input_feed)
             
         else:
@@ -565,6 +587,10 @@ class SeqModel(object):
             input_feed[self.beam_parent.name] = beam_parent
             output_feed = []
             output_feed.append(self.after2before_ops)
+
+            if self.with_attention:
+                output_feed.append(self.after2before_att_ops)
+
             _ = session.run(output_feed, input_feed)
 
             
@@ -579,6 +605,9 @@ class SeqModel(object):
         output_feed['index'] = self.topk_indexes[bucket_id]
         output_feed['eos_value'] = self.eos_values[bucket_id]
         output_feed['ops'] = self.decoder2after_ops[bucket_id]
+        
+        if self.with_attention:
+            output_feed['att_ops'] = self.decoder2after_att_ops[bucket_id]
 
         outputs = session.run(output_feed,input_feed)
         
@@ -637,6 +666,12 @@ class SeqModel(object):
 
         self.encoder2before_ops = []
         self.decoder2after_ops = []
+        
+        if attention :
+            self.ht_att_init_ops = []
+            self.decoder2after_att_ops = []
+            self.top_states_4_ops = []
+            self.top_states_transform_4_ops = []
 
         for j, source_length in enumerate(source_buckets):
             with variable_scope.variable_scope(variable_scope.get_variable_scope(),reuse=True if j > 0 else None):
@@ -647,8 +682,16 @@ class SeqModel(object):
                     self.hts.append(_hts)
                     self.encoder2before_ops.append(e2b)
                     self.decoder2after_ops.append(d2a)
+                # fill by Miao on 2017/7/29
                 else:
-                    pass
+                    _hts, _, e2b, d2a, ht_a_i, d2a_a, ts4, tst4= self.beam_attention_seq2seq(j, encoder_cell, decoder_cell, sources[:source_length], inputs[:1], dtype, devices)
+                    self.hts.append(_hts)
+                    self.encoder2before_ops.append(e2b)
+                    self.decoder2after_ops.append(d2a)
+                    self.ht_att_init_ops.append(ht_a_i)
+                    self.decoder2after_att_ops.append(d2a_a)
+                    self.top_states_4_ops.append(ts4)
+                    self.top_states_transform_4_ops.append(tst4)
                 
                 # logits
                 _softmaxs = [ tf.nn.softmax(tf.add(tf.matmul(ht, tf.transpose(self.output_embedding)), self.output_bias)) for ht in _hts]
@@ -690,10 +733,77 @@ class SeqModel(object):
         return decoder_outputs, decoder_state, encoder2before_ops, decoder2after_ops  
                     
 
-    def beam_attention_seq2seq(self, encoder_cell, decoder_cell, encoder_inputs, decoder_inputs, dtype, devices = None):
-        # fill this
-        pass
+    def beam_attention_seq2seq(self, bucket_id, encoder_cell, decoder_cell, encoder_inputs, decoder_inputs, dtype, devices = None):
+        # fill by Miao on 2017/7/29
+        scope_name = "attention_seq2seq"
+        with tf.variable_scope(scope_name):
+            with tf.device(devices[1]):
+                init_state = encoder_cell.zero_state(self.batch_size, dtype)
 
+                # parameters
+                self.a_w_source = tf.get_variable("a_w_source",[self.size, self.size], dtype = dtype)
+                self.a_w_target = tf.get_variable('a_w_target',[self.size, self.size], dtype = dtype)
+                self.a_b = tf.get_variable('a_b',[self.size], dtype = dtype)
+
+                self.a_v = tf.get_variable('a_v',[self.size], dtype = dtype)
+
+                self.h_w_context = tf.get_variable("h_w_context",[self.size, self.size], dtype = dtype)
+                self.h_w_target = tf.get_variable("h_w_target",[self.size, self.size], dtype = dtype)
+                self.h_b =  tf.get_variable('h_b',[self.size], dtype = dtype)
+                
+                self.fi_w_x = tf.get_variable("fi_w_x",[self.size, self.size], dtype = dtype)
+                self.fi_w_att = tf.get_variable("fi_w_att",[self.size, self.size], dtype = dtype)
+                self.fi_b =  tf.get_variable('fi_b',[self.size], dtype = dtype)
+
+                source_length = len(encoder_inputs)
+
+                with tf.variable_scope("encoder"):
+                    encoder_outputs, encoder_state = tf.contrib.rnn.static_rnn(encoder_cell,encoder_inputs,initial_state = init_state)
+
+                    top_states = [tf.reshape(h,[-1,1,self.size]) for h in encoder_outputs]
+                    top_states = tf.concat(top_states,1)
+                    
+                    
+                    top_states_4 = tf.reshape(top_states,[-1,source_length,1,self.size])
+                    a_w_source_4 = tf.reshape(self.a_w_source,[1,1,self.size,self.size])
+                    top_states_transform_4 = tf.nn.conv2d(top_states_4, a_w_source_4, [1,1,1,1], 'SAME')
+
+                encoder2before_ops = self.states2states(encoder_state,self.before_state)
+                ht_att_init_ops = self.before_ht_att.assign(tf.zeros_like(encoder_outputs[-1]))
+                top_states_4_ops = self.top_states2states(top_states_4,self.top_states_4[bucket_id])
+                top_states_transform_4_ops = self.top_states2states(top_states_transform_4,self.top_states_transform_4[bucket_id])
+
+                def get_context(query):
+                    # query : [batch_size, hidden_size] ht
+                    # return h_t_att : [batch_size, hidden_size] ct
+
+                    # a_w_target * h_target
+                    query_transform_2 = tf.add(tf.matmul(query, self.a_w_target), self.a_b)
+                    query_transform_4 = tf.reshape(query_transform_2, [-1,1,1,self.size]) #[batch_size,1,1,hidden_size]
+                    
+                    #a = softmax( a_v * tanh(...))
+                    s = tf.reduce_sum(self.a_v * tf.tanh(self.top_states_transform_4[bucket_id] + query_transform_4),[2,3]) #[batch_size, source_length]
+                    a = tf.nn.softmax(s) 
+
+                    # context = a * h_source
+                    context = tf.reduce_sum(tf.reshape(a, [-1, source_length,1,1]) * self.top_states_4[bucket_id], [1,2]) #sum along sentence length
+                    
+                    return context
+
+                with tf.variable_scope("decoder"):
+                    outputs = []
+                    x = tf.add(tf.add(tf.matmul(decoder_inputs[0], self.fi_w_x),tf.matmul(self.before_ht_att, self.fi_w_att)), self.fi_b)
+                    # One step encoder: starts from before_state
+                    decoder_output, decoder_state = decoder_cell(x, self.before_state)
+
+                    decoder2after_ops = self.states2states(decoder_state,self.after_state)
+                    
+                    context = get_context(decoder_output)
+                    h_att = tf.tanh(tf.add(tf.add(tf.matmul(decoder_output, self.h_w_target), tf.matmul(context,self.h_w_context)),self.h_b))
+                    decoder2after_att_ops = self.after_ht_att.assign(h_att)
+                    outputs.append(h_att)
+
+                    return outputs, decoder_state, encoder2before_ops, decoder2after_ops, ht_att_init_ops, decoder2after_att_ops, top_states_4_ops, top_states_transform_4_ops
 
 
 
@@ -722,7 +832,20 @@ class SeqModel(object):
             
         return ops
 
+    # Add by Miao 2017/7/29
+    # Copy operation of attention state (ht_att) 
+    def after2before_att(self, beam_parent):
+        ht_att = self.after_ht_att
+        new_ht_att = tf.nn.embedding_lookup(ht_att, beam_parent)
+        copy_ht_att = self.before_ht_att.assign(new_ht_att)
+        return copy_ht_att
 
+    # Copy operation of top state (ht) in encoder
+    def top_states2states(self, state, to_state):
+        ops = []
+        copy = to_state.assign(state)
+        ops.append(copy)
+        return ops
 
 
     ######### Dump LSTM ##########

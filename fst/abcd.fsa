@@ -1,0 +1,8 @@
+F
+(start (a a))
+(a (b b))
+(a (c c))
+(a (d d))
+(b (F *e*))
+(c (F *e*))
+(d (F *e*))

@@ -256,6 +256,7 @@ def create_model(session, run_options, run_metadata):
 
         mylog("Reading model parameters from %s" % ckpt.model_checkpoint_path)
         model.saver.restore(session, ckpt.model_checkpoint_path)
+        session.run(tf.variables_initializer(model.beam_search_vars))
     else:
         mylog("Created model with fresh parameters.")
         session.run(tf.global_variables_initializer())
@@ -669,7 +670,6 @@ def beam_decode():
                 if i == 0:
                     top_value, top_index, eos_value = model.beam_step(sess, bucket_id, index=i, sources = source_inputs, target_inputs = target_inputs)
                 else:
-
                     top_value, top_index, eos_value = model.beam_step(sess, bucket_id, index=i,  target_inputs = target_inputs, beam_parent = beam_parent)
 
                 # top_value = [array[batch_size, batch_size]]
@@ -747,6 +747,7 @@ def beam_decode():
             results = sorted(results, key = lambda x: -x[1])
             
             targets.append(results[0][0])
+            
 
         data_utils.ids_to_tokens(targets, to_vocab_path, FLAGS.decode_output)
                 

@@ -1,5 +1,3 @@
-Data Format:
-
 # File Structure #
 
 ```
@@ -21,14 +19,16 @@ model_{version}/
 	log.force_decode.txt
 ```
 
-# Above `/py` `/py_att` `/py_win` #
+# About `/py` `/py_att` `/py_win` #
 
 `/py` is written by Xing Shi, contains both attention and non-attention model
+
 `/py_att` is written by Codereba, contains his version of attention and non-attention
+
 `/py_win` is written by Codereba, contains a working version for Windows. 
 
 
-# Using Tensorboard: #
+# Using Tensorboard #
 
 ```bash
 # on HPC

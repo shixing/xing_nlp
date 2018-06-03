@@ -353,6 +353,8 @@ def train():
                     mylog_line(sect_name, msg)
                 else:
                     patience -= 1
+                    # 本次ppx没有减小的时候 把学习率调小
+                    sess.run(model.learning_rate_decay_op)
 
                 if patience <= 0:
                     mylog("Training finished. Running out of patience.")
